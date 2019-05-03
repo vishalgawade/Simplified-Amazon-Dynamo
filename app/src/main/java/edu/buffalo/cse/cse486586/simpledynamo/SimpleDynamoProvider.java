@@ -42,14 +42,15 @@ public class SimpleDynamoProvider extends ContentProvider {
 	private Map<String,String> allNodesInRing=new TreeMap<String,String>();
 	private static final String KEY_FIELD = "key";
 	private static final String VALUE_FIELD = "value";
+
 	@Override
 	public int delete(Uri uri, String selection, String[] selectionArgs) {
-		String requestor=myNode.getPort();
+		/*String requestor=myNode.getPort();
 		if(selectionArgs!=null){
 			if(requestor.equals(selectionArgs[0]))
 				return 0;
 			requestor=selectionArgs[0];
-		}
+		}*/
 		//delete from local all
 		if(selection.equals("@")){
 			deleteAllLocalFiles();
@@ -58,27 +59,44 @@ public class SimpleDynamoProvider extends ContentProvider {
 		//delete from  all avds
 		else if(selection.equals("*")){
 			//only one node in ring
-			if(myNode.getId().compareTo(myNode.getPredecessorHash())==0){
+			/*if(myNode.getId().compareTo(myNode.getPredecessorHash())==0){
 				deleteAllLocalFiles();
 				return 0;
 			}
 			else{
 				deleteAllLocalFiles();
 				forwardDeleteRequest("*",myNode.getSuccessor(),requestor);
-			}
+			}*/
+            for(String port:allNodesInRing.values()){
+                if(port.equals(myNode.getPort()))
+                    deleteAllLocalFiles();
+                else
+                    forwardDeleteRequest("@",port);
+            }
 		}
 		else{
 			if(selection!=null) {
 				try {
 					//check whether current node is right node for insert else forward request to its successor
 					//check whether we should insert here
-					if(isKeyPresent(selection)){
+					if(selectionArgs!=null){
 						getContext().getApplicationContext().deleteFile(selection);
-						Log.v("deleted key at", myNode.getPort());
 					}
-					//forward request to successor of current node
 					else{
-						forwardDeleteRequest(selection,myNode.getSuccessor(),requestor);
+						String port=getKeyBelogingPort(selection);
+						String [] sucessors=getTwoSuccessors(port);
+						if(port.equals(myNode.getPort())){
+							getContext().getApplicationContext().deleteFile(selection);
+							forwardDeleteRequest(selection,sucessors[0]);
+							forwardDeleteRequest(selection,sucessors[1]);
+							Log.v("deleted key at", myNode.getPort());
+						}
+						//forward request to successor of current node
+						else{
+							forwardDeleteRequest(selection,port);
+							forwardDeleteRequest(selection,sucessors[0]);
+							forwardDeleteRequest(selection,sucessors[1]);
+						}
 					}
 				}
 				catch (Exception e){
@@ -107,14 +125,21 @@ public class SimpleDynamoProvider extends ContentProvider {
 				String key= (String) values.get(KEY_FIELD);
 				String value= (String) values.get(VALUE_FIELD);
 				//check whether we should insert here
-				if(isRightNode(key)){
+                String rightPort=getKeyBelogingPort(key);
+				if(rightPort.equals(myNode.getPort())){
 					outputStream = getContext().getApplicationContext().openFileOutput(key, Context.MODE_PRIVATE);
 					outputStream.write(value.getBytes());
+                    String [] successors=getTwoSuccessors(myNode.getPort());
+                    forwardInsertRequest(key,value,successors[0]);
+                    forwardInsertRequest(key,value,successors[1]);
 					Log.v("inserted key at", values.toString());
 				}
 				//forward request to successor of current node
 				else{
-					forwardInsertRequest(key,value,myNode.getSuccessor());
+					forwardInsertRequest(key,value,rightPort);
+                    String [] successors=getTwoSuccessors(rightPort);
+                    forwardInsertRequest(key,value,successors[0]);
+                    forwardInsertRequest(key,value,successors[1]);
 				}
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
@@ -136,15 +161,32 @@ public class SimpleDynamoProvider extends ContentProvider {
 		}
 		return uri;
 	}
-	private void forwardInsertRequest(String key, String value, String successor) {
-		new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "INSERT",successor,key,value);
+
+	private String [] getTwoSuccessors(String port){
+        String arr[]= new String[allNodesInRing.size()];
+        int index=0;
+        for(String s:allNodesInRing.values()){
+            arr[index++]=s;
+        }
+        int length=arr.length;
+        String [] ret=new String[2];
+        for(int i=0;i<arr.length;i++){
+            if(arr[i].equals(port)){
+                ret[0]=arr[((i+1)%length)];
+                ret[1]=arr[((i+2)%length)];
+            }
+        }
+        return ret;
+    }
+	private void forwardInsertRequest(String key, String value, String rightNode) {
+		new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "INSERT",rightNode,key,value);
 	}
 
-	private void forwardDeleteRequest(String key, String successor,String requestor) {
-		new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "DELETE",successor,key,requestor);
+	private void forwardDeleteRequest(String key,String rightNode) {
+		new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "DELETE",rightNode,key);
 	}
 
-	private boolean isRightNode(String key)  {
+	/*private boolean isRightNode(String key)  {
 		String keyHash=getNodeHash(key);
 		//for only following conditions we allow insert to current node
 		//1.only one node in ring
@@ -169,7 +211,48 @@ public class SimpleDynamoProvider extends ContentProvider {
 			return true;
 		else
 			return false;
-	}
+	}*/
+
+    private boolean isRightNode(String keyHash,String nodeHash,String predecessorHash)  {
+        //for only following conditions we allow insert to current node
+        //1.only one node in ring
+        //2.keyHash >predecessor hash and keyHash<=current node hash and predecessor<current node hash
+        //3.keyHash>=current node hash and KeyHash>PredecessorHash and PredecessorHash>current node hash
+        //4.keyHash<=current node hash and keyHash<Predecessor hash and predecessor hash>current node hash
+
+        //Log.e(TAG, "test values "+key+" "+nodeHash+" "+predecessorHash);
+//        if((nodeHash.compareTo(predecessorHash)==0)||
+//                (keyHash.compareTo(nodeHash)<=0&&keyHash.compareTo(predecessorHash)>0&&nodeHash.compareTo(predecessorHash)>0)||
+//                (keyHash.compareTo(nodeHash)>=0&&keyHash.compareTo(predecessorHash)>0&&predecessorHash.compareTo(nodeHash)>0)||
+//                (keyHash.compareTo(nodeHash)<=0&&keyHash.compareTo(predecessorHash)<0&&predecessorHash.compareTo(nodeHash)>0)) {
+        if((nodeHash.compareTo(predecessorHash)==0))
+            return true;
+        else if(keyHash.compareTo(nodeHash)<=0&&keyHash.compareTo(predecessorHash)>0&&nodeHash.compareTo(predecessorHash)>0)
+            return true;
+        else if(keyHash.compareTo(nodeHash)>=0&&keyHash.compareTo(predecessorHash)>0&&predecessorHash.compareTo(nodeHash)>0)
+            return true;
+        else if(keyHash.compareTo(nodeHash)<=0&&keyHash.compareTo(predecessorHash)<0&&predecessorHash.compareTo(nodeHash)>0)
+            return true;
+        else
+            return false;
+    }
+
+	private String getKeyBelogingPort(String key){
+        String keyHash=getNodeHash(key);
+        String arr[]= new String[allNodesInRing.size()];
+        int index=0;
+        for(String s:allNodesInRing.values()){
+            arr[index++]=s;
+        }
+        Log.e(TAG,"current allNodeInRing "+allNodesInRing.size());
+        int length=arr.length;
+        for(int i=1;i<arr.length;i++){
+            if(isRightNode(keyHash,getNodeHash(arr[i%length]),getNodeHash(arr[(i-1)%length]))){
+                return arr[i%length];
+            }
+        }
+        return arr[0];
+    }
 
 	@Override
 	public boolean onCreate() {
@@ -202,7 +285,9 @@ public class SimpleDynamoProvider extends ContentProvider {
                 //add leader node to ring
                 allNodesInRing.put(getNodeHash(leaderPort),leaderPort);
             }*/
+
 			new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "JOIN", myPort);
+//            makeRing();
 		} catch (IOException e) {
 			/*
 			 * Log is a good way to debug your code. LogCat prints out all the messages that
@@ -219,13 +304,12 @@ public class SimpleDynamoProvider extends ContentProvider {
 	}
 
 	private MatrixCursor getKeysData(){
-		{
 			// TODO Auto-generated method stub
 			MatrixCursor cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
 			String text="";
 			String [] fileList=getContext().getApplicationContext().fileList();
-			for(String s:fileList)
-				Log.v("vishal files ", s);
+//			for(String s:fileList)
+//				Log.v("vishal files ", s);
 			for(String selection:fileList) {
 				try {
 					// BufferedReader br=new BufferedReader(new FileReader(selection));
@@ -248,7 +332,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 			}
 			Log.v("query", "successfully found rows "+cursor.getCount());
 			return cursor;
-		}
 	}
 
 	private MatrixCursor getKey(String selection){
@@ -286,12 +369,12 @@ public class SimpleDynamoProvider extends ContentProvider {
 	@Override
 	public Cursor query(Uri uri, String[] projection, String selection,
 			String[] selectionArgs, String sortOrder) {
-		String requestor=myNode.getPort();
+		/*String requestor=myNode.getPort();
 		if(selectionArgs!=null){
 			if(requestor.equals(selectionArgs[0]))
 				return null;
 			requestor=selectionArgs[0];
-		}
+		}*/
 		//search local all
 		if(selection.equals("@")){
 			return getKeysData();
@@ -299,10 +382,10 @@ public class SimpleDynamoProvider extends ContentProvider {
 		//search all avds
 		else if(selection.equals("*")){
 			//only one node in ring
-			if(myNode.getId().compareTo(myNode.getPredecessorHash())==0)
+			/*if(myNode.getId().compareTo(myNode.getPredecessorHash())==0)
 				return getKeysData();
 			else{
-				MatrixCursor otherAvdCursor=serachOtherAvdForAllKeys(selection,myNode.getSuccessor(),requestor);
+				MatrixCursor otherAvdCursor=serachOtherAvdForAllKeys(selection,myNode.getSuccessor());
 				MatrixCursor myLocalCursor=getKeysData();
 				String curPairs=getKeyValuePairsFromCursor(myLocalCursor);
 				String[] pairs=curPairs.isEmpty()?null:curPairs.split(";");
@@ -313,17 +396,44 @@ public class SimpleDynamoProvider extends ContentProvider {
 					}
 				}
 				return otherAvdCursor;
-			}
+			}*/
+            MatrixCursor myLocalCursor=getKeysData();
+			for(String port:allNodesInRing.values()){
+			    if(!port.equals(myNode.getPort())){
+                    MatrixCursor tempCursor=serachOtherAvdForAllKeys("@",port);
+                    String curPairs=getKeyValuePairsFromCursor(tempCursor);
+                    String[] pairs=curPairs.isEmpty()?null:curPairs.split(";");
+                    if(pairs!=null){
+                        for(int i=0;i<pairs.length;i++){
+                            String[] pair=pairs[i].split(",");
+                            myLocalCursor.addRow(new String[]{pair[0],pair[1]});
+                        }
+                    }
+                }
+            }
+            return myLocalCursor;
 		}
 		else{
 			//search local
-			if(isKeyPresent(selection)){
-				return getKey(selection);
+			String port=getKeyBelogingPort(selection);
+			String [] sucessors=getTwoSuccessors(port);
+			MatrixCursor myCursor=null;
+			MatrixCursor successor1Cursor=null;
+			MatrixCursor successor2Cursor=null;
+			if(port.equals(myNode.getPort())){
+				 myCursor=getKey(selection);
+				 successor1Cursor=searchOtherAvdForKey(selection,sucessors[0]);
+				 successor2Cursor=searchOtherAvdForKey(selection,sucessors[1]);
+
 			}
 			//search in othet avds
 			else{
-				return searchOtherAvdForKey(selection,myNode.getSuccessor(),requestor);
+			   // String port=getKeyBelogingPort(selection);
+				 myCursor=searchOtherAvdForKey(selection,port);
+				 successor1Cursor=searchOtherAvdForKey(selection,sucessors[0]);
+				 successor2Cursor=searchOtherAvdForKey(selection,sucessors[1]);
 			}
+			return myCursor!=null?myCursor:successor1Cursor!=null?successor1Cursor:successor2Cursor;
 		}
 	}
 	private  boolean isKeyPresent(String selection){
@@ -340,7 +450,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 		return true;
 	}
 
-	private MatrixCursor searchOtherAvdForKey(String selection, String successor,String requestor){
+	private MatrixCursor searchOtherAvdForKey(String selection, String port){
 		InputStream is=null;
 		DataOutputStream ds=null;
 		DataInputStream di=null;
@@ -349,11 +459,11 @@ public class SimpleDynamoProvider extends ContentProvider {
 		MatrixCursor cursor=null;
 		try{
 			socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-					Integer.parseInt(successor));
+					Integer.parseInt(port));
 			OutputStream os = socket.getOutputStream();
 			ds = new DataOutputStream(os);
 			//tell leader to add this node to his ring
-			ds.writeUTF("GETKEYSFORWARD,"+selection+","+requestor);
+			ds.writeUTF("GETKEYSFORWARD,"+selection);
 			try {
 				is = socket.getInputStream();
 				// bf = new BufferedReader(new InputStreamReader(is));
@@ -387,7 +497,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 		return cursor;
 	}
 
-	private MatrixCursor serachOtherAvdForAllKeys(String selection,String successor,String requestor){
+	private MatrixCursor serachOtherAvdForAllKeys(String selection,String port){
 		InputStream is=null;
 		DataOutputStream ds=null;
 		DataInputStream di=null;
@@ -396,11 +506,11 @@ public class SimpleDynamoProvider extends ContentProvider {
 		MatrixCursor cursor=null;
 		try{
 			socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-					Integer.parseInt(successor));
+					Integer.parseInt(port));
 			OutputStream os = socket.getOutputStream();
 			ds = new DataOutputStream(os);
 			//tell leader to add this node to his ring
-			ds.writeUTF("GETKEYSFORWARD,"+selection+","+requestor);
+			ds.writeUTF("GETKEYSFORWARD,"+selection);
 			try {
 				is = socket.getInputStream();
 				// bf = new BufferedReader(new InputStreamReader(is));
@@ -469,7 +579,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 	}
 
 	public class ServerTask extends AsyncTask<ServerSocket, String, Void> {
-		final Uri mUri = buildUri("content", "edu.buffalo.cse.cse486586.simpledht.provider");
+		final Uri mUri = buildUri("content", "edu.buffalo.cse.cse486586.simpledynamo.provider");
 		@Override
 		protected Void doInBackground(ServerSocket... sockets) {
 			ServerSocket serverSocket = sockets[0];
@@ -503,7 +613,10 @@ public class SimpleDynamoProvider extends ContentProvider {
 //                        String incomingNodeHash=getNodeHash(incomingPort);
 //                        String oldPredecessor=myNode.getPredecessor();
 //                        String oldSucceossor=myNode.getSuccessor();
-						findSuccessor(incomingPort);
+						//findSuccessor(incomingPort);
+                       // Log.e(TAG, "came to add value "+incomingPort);
+                      //  allNodesInRing.put(getNodeHash(incomingPort),incomingPort);
+                        Log.e(TAG, "came size after  "+allNodesInRing.size());
 						//only leader is live in network i.e. only one node in network
 //                        if(myNode.getPredecessorHash().compareTo(myNode.getId())==0){
 //                            myNode.setPredecessor(incomingPort);
@@ -546,11 +659,24 @@ public class SimpleDynamoProvider extends ContentProvider {
 						cv.put(VALUE_FIELD, msgSplit[2]);
 						//insert checks for right node else forward request to successor
 						//careful about circular infinite loop
-						insert(mUri, cv);
+						//insert(mUri, cv);
+						/*FileOutputStream outputStream=null;
+                        outputStream = getContext().getApplicationContext().openFileOutput(msgSplit[1], Context.MODE_PRIVATE);
+                        outputStream.write(msgSplit[2].getBytes());
+                        outputStream.close();*/
+						FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(msgSplit[1], Context.MODE_PRIVATE);
+						outputStream.write(msgSplit[2].getBytes());
+						outputStream.close();
+                        Log.v("inserted forward key at", cv.toString());
 					}
 					else if(msgSplit[0].equals("GETKEYSFORWARD")){
-						String [] args=new String []{msgSplit[2]};
-						Cursor cursor = query(mUri, null, msgSplit[1], args, null);
+                        Cursor cursor;
+                        if(msgSplit[1].equals("@")){
+                            cursor=getKeysData();
+                        }
+                        else{
+                            cursor = getKey(msgSplit[1]);
+                        }
 						if(cursor!=null){
 							String ret = getKeyValuePairsFromCursor((MatrixCursor)cursor);
 							Log.e(TAG,"found key here "+ret);
@@ -558,11 +684,40 @@ public class SimpleDynamoProvider extends ContentProvider {
 						}
 						else
 							ds.writeUTF("");
-
+                       /* Cursor cursor = query(mUri, null, msgSplit[1], null, null);
+                        if(cursor!=null){
+                            String ret = getKeyValuePairsFromCursor((MatrixCursor)cursor);
+                            Log.e(TAG,"found key here "+ret);
+                            ds.writeUTF(ret);
+                        }
+                        else
+                            ds.writeUTF("");*/
 					}
 					else if(msgSplit[0].equals("DELETEFORWARD")){
-						String [] args=new String []{msgSplit[2]};
-						delete(mUri, msgSplit[1], args);
+                        delete(mUri, msgSplit[1], new String[]{"true"});
+					    /*if(msgSplit[1].equals("*"))
+						    deleteAllLocalFiles();
+					    else{
+                            getContext().getApplicationContext().deleteFile(msgSplit[2]);
+                            Log.v("deleted forward key at", myNode.getPort());
+                        }*/
+					}
+					else if(msgSplit[0].equals("LIVEAGAIN")){
+						MatrixCursor cursor=findFailedNodeData(msgSplit[1],msgSplit[2]);
+						if(cursor.getCount()!=0){
+							String ret = getKeyValuePairsFromCursor((MatrixCursor)cursor);
+							Log.e(TAG,"failedPort keys found  here "+ret);
+							ds.writeUTF(ret);
+						}
+						else
+							ds.writeUTF("");
+						//delete(mUri, msgSplit[1], null);
+					    /*if(msgSplit[1].equals("*"))
+						    deleteAllLocalFiles();
+					    else{
+                            getContext().getApplicationContext().deleteFile(msgSplit[2]);
+                            Log.v("deleted forward key at", myNode.getPort());
+                        }*/
 					}
 				}
 				catch (IOException e) {
@@ -573,7 +728,41 @@ public class SimpleDynamoProvider extends ContentProvider {
 			return null;
 		}
 
-		private void findSuccessor(String incomingPort) {
+		private MatrixCursor findFailedNodeData(String failedPort,String predessor) {
+				// TODO Auto-generated method stub
+				MatrixCursor cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
+				String text="";
+				String [] fileList=getContext().getApplicationContext().fileList();
+//				for(String s:fileList)
+//					Log.v("vishal files ", s);
+				for(String selection:fileList) {
+					//this is wrong
+					if(isRightNode(getNodeHash(selection),failedPort,predessor)){
+						try {
+							// BufferedReader br=new BufferedReader(new FileReader(selection));
+							FileInputStream fis = getContext().getApplicationContext().openFileInput(selection);
+							text="";
+							int value = 0;
+							while ((value = fis.read()) != -1) {
+								text += (char) value;
+							}
+							if (text.equals("")) {
+								Log.v("file", "file not found");
+								//return null;
+							} else {
+								cursor.addRow(new String[]{selection, text});
+							}
+						} catch (Exception e) {
+							e.printStackTrace();
+							Log.v("file", "file not found");
+						}
+					}
+				}
+				Log.v("query", "successfully found rows "+cursor.getCount());
+				return cursor;
+		}
+
+		/*private void findSuccessor(String incomingPort) {
 			allNodesInRing.put(getNodeHash(incomingPort),incomingPort);
 			String arr[]= new String[allNodesInRing.size()];
 			int index=0;
@@ -587,7 +776,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 			if(arr.length>1){
 				new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "UPDATE",arr[0],arr[length-1],arr[1]);
 			}
-		}
+		}*/
 
 		protected void onProgressUpdate(String...strings) {
 			/*
@@ -627,21 +816,203 @@ public class SimpleDynamoProvider extends ContentProvider {
 		Socket socket;
 		DataOutputStream ds=null;
 		DataInputStream di=null;
-		InputStream is;
 		@Override
 		protected Void doInBackground(String... msgs) {
 			try {
 				//send join request to avd0 node
 				if (msgs[0].equals("JOIN")) {
-					//avd0 is not in ring
-//                    if(allNodesInRing.get(getNodeHash(remotePort[0]))!=remotePort[0])
-//                        return null;
-					socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-							Integer.parseInt(remotePort[0]));
-					OutputStream os = socket.getOutputStream();
-					ds = new DataOutputStream(os);
-					//tell leader to add this node to his ring
-					ds.writeUTF("ADD,"+msgs[1]);
+					String [] fileList=getContext().getApplicationContext().fileList();
+					InputStream is = null;
+					for (String port : remotePort)
+						allNodesInRing.put(getNodeHash(port), port);
+					//recover mode
+					if(fileList.length!=0) {
+//						InputStream is = null;
+//						for (String port : remotePort)
+//							allNodesInRing.put(getNodeHash(port), port);
+						String[] successors = getTwoSuccessors(myNode.getPort());
+						String predessor = remotePort[4];
+						for (String port : allNodesInRing.values()) {
+							if (port.equals(myNode.getPort()))
+								break;
+							predessor = port;
+						}
+						String predessorpred = remotePort[4];
+						for (String port : allNodesInRing.values()) {
+							if (port.equals(predessor))
+								break;
+							predessorpred = port;
+						}
+						String predessorpredpred = remotePort[4];
+						for (String port : allNodesInRing.values()) {
+							if (port.equals(predessorpred))
+								break;
+							predessorpredpred = port;
+						}
+						String pairs1[]=null;
+						String pairs2[]=null;
+						String pairsp1[]=null;
+						String pairsp2[]=null;
+						//successor 1
+						socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+								Integer.parseInt(successors[0]));
+						OutputStream os = socket.getOutputStream();
+						ds = new DataOutputStream(os);
+						//tell leader to add this node to his ring
+						ds.writeUTF("LIVEAGAIN," + myNode.getPort() + "," + predessor);
+						try {
+							is = socket.getInputStream();
+							// bf = new BufferedReader(new InputStreamReader(is));
+							di = new DataInputStream(is);
+							//msg=bf.readLine();
+							String msg = di.readUTF();
+							if (!msg.trim().isEmpty()) {
+								pairs1 = msg.split(";");
+								/*for (int i = 0; i < pairs.length; i++) {
+									splits1 = pairs[i].split(",");
+									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+									outputStream.write(split[1].getBytes());
+									outputStream.close();
+								}
+								Log.e(TAG, "succefully inserted all recovered data from " + successors);*/
+							}
+						} catch (Exception e) {
+							Log.e(TAG, "failed to  inserted all recovered data");
+						} finally {
+							if (is != null) is.close();
+							ds.close();
+						}
+						//successor 2
+						socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+								Integer.parseInt(successors[1]));
+						OutputStream os3 = socket.getOutputStream();
+						ds = new DataOutputStream(os3);
+						//tell leader to add this node to his ring
+						ds.writeUTF("LIVEAGAIN," + myNode.getPort() + "," + predessor);
+						try {
+							is = socket.getInputStream();
+							// bf = new BufferedReader(new InputStreamReader(is));
+							di = new DataInputStream(is);
+							//msg=bf.readLine();
+							String msg = di.readUTF();
+							if (!msg.trim().isEmpty()) {
+								pairs2 = msg.split(";");
+								/*for (int i = 0; i < pairs.length; i++) {
+									splits1 = pairs[i].split(",");
+									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+									outputStream.write(split[1].getBytes());
+									outputStream.close();
+								}
+								Log.e(TAG, "succefully inserted all recovered data from " + successors);*/
+							}
+						} catch (Exception e) {
+							Log.e(TAG, "failed to  inserted all recovered data");
+						} finally {
+							if (is != null) is.close();
+							ds.close();
+						}
+						//predecessor 1
+						socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+								Integer.parseInt(predessor));
+						OutputStream os1 = socket.getOutputStream();
+						ds = new DataOutputStream(os1);
+						//tell leader to add this node to his ring
+						ds.writeUTF("LIVEAGAIN," + predessor + "," + predessorpred);
+						try {
+							is = socket.getInputStream();
+							// bf = new BufferedReader(new InputStreamReader(is));
+							di = new DataInputStream(is);
+							//msg=bf.readLine();
+							String msg = di.readUTF();
+							if (!msg.trim().isEmpty()) {
+								pairsp1 = msg.split(";");
+								/*for (int i = 0; i < pairs.length; i++) {
+									String split[] = pairs[i].split(",");
+									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+									outputStream.write(split[1].getBytes());
+									outputStream.close();
+								}
+								Log.e(TAG, "succefully inserted all rata fropm " + predessor);*/
+							}
+						} catch (Exception e) {
+							Log.e(TAG, "failed to  inserted all recovered data");
+						} finally {
+							if (is != null) is.close();
+							ds.close();
+						}
+						//predecessor 2
+						socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+								Integer.parseInt(predessorpred));
+						OutputStream os2 = socket.getOutputStream();
+						ds = new DataOutputStream(os2);
+						//tell leader to add this node to his ring
+						ds.writeUTF("LIVEAGAIN," + predessorpred + "," + predessorpredpred);
+						try {
+							is = socket.getInputStream();
+							// bf = new BufferedReader(new InputStreamReader(is));
+							di = new DataInputStream(is);
+							//msg=bf.readLine();
+							String msg = di.readUTF();
+							if (!msg.trim().isEmpty()) {
+								pairsp2 = msg.split(";");
+								/*for (int i = 0; i < pairs.length; i++) {
+									String split[] = pairs[i].split(",");
+									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+									outputStream.write(split[1].getBytes());
+									outputStream.close();
+								}
+								Log.e(TAG, "succefully inserted all recovered data fropm " + predessorpred);*/
+							}
+						} catch (Exception e) {
+							Log.e(TAG, "failed to  inserted all recovered data");
+						} finally {
+							if (is != null) is.close();
+							ds.close();
+						}
+						if(pairs1!=null)
+						Log.e(TAG, "size of pairs1 "+pairs1.length);
+						if(pairs2!=null)
+						Log.e(TAG, "size of pairs2 "+pairs2.length);
+						if(pairsp1!=null)
+						Log.e(TAG, "size of pairsp1 "+pairsp1.length);
+						if(pairsp2!=null)
+						Log.e(TAG, "size of pairsp2 "+pairsp2.length);
+						//insert values
+						for (int i = 0; i < pairs1.length; i++) {
+							String split[] = pairs1[i].split(",");
+							FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+							outputStream.write(split[1].getBytes());
+							outputStream.close();
+						}
+						for (int i = 0; i < pairs2.length; i++) {
+							String split[] = pairs2[i].split(",");
+							FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+							outputStream.write(split[1].getBytes());
+							outputStream.close();
+						}
+						for (int i = 0; i < pairsp1.length; i++) {
+							String split[] = pairsp1[i].split(",");
+							FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+							outputStream.write(split[1].getBytes());
+							outputStream.close();
+						}
+						for (int i = 0; i < pairsp2.length; i++) {
+							String split[] = pairsp2[i].split(",");
+							FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+							outputStream.write(split[1].getBytes());
+							outputStream.close();
+						}
+//				    makeRing();
+					/*for(String port:remotePort){
+					    if(!port.equals(myNode.getPort())){
+                            socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                                    Integer.parseInt(port));
+                            OutputStream os = socket.getOutputStream();
+                            ds = new DataOutputStream(os);
+                            //tell leader to add this node to his ring
+                            ds.writeUTF("ADD,"+msgs[1]);
+                        }
+                    }*/
 //                    is = socket.getInputStream();
 //                    // bf = new BufferedReader(new InputStreamReader(is));
 //                    di = new DataInputStream(is);
@@ -652,7 +1023,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 //                    myNode.setSuccessor(msg[1]);
 //
 //                    //now tell predecessor and successor to update their nodes
-
+					}
 
 				}
 				if(msgs[0].equals("UPDATE")){
@@ -676,7 +1047,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 							Integer.parseInt(msgs[1]));
 					OutputStream os = socket.getOutputStream();
 					ds = new DataOutputStream(os);
-					ds.writeUTF("DELETEFORWARD,"+msgs[2]+","+msgs[3]);
+					ds.writeUTF("DELETEFORWARD,"+msgs[2]);
 				}
 			}
 			catch (Exception e){
@@ -684,8 +1055,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 			}
 			finally {
 				try {
-					is.close();
-					ds.close();
+					if(ds!=null) ds.close();
 					if(!socket.isClosed())socket.close();
 				}
 				catch (Exception e){
@@ -694,6 +1064,24 @@ public class SimpleDynamoProvider extends ContentProvider {
 			}
 			return null;
 		}
+
+		private String [] getTwoSuccessors(String port){
+			String arr[]= new String[allNodesInRing.size()];
+			int index=0;
+			for(String s:allNodesInRing.values()){
+				arr[index++]=s;
+			}
+			int length=arr.length;
+			String [] ret=new String[2];
+			for(int i=0;i<arr.length;i++){
+				if(arr[i].equals(port)){
+					ret[0]=arr[((i+1)%length)];
+					ret[1]=arr[((i+2)%length)];
+				}
+			}
+			return ret;
+		}
+
 	}
 
 	private Uri buildUri(String scheme, String authority) {
@@ -702,5 +1090,10 @@ public class SimpleDynamoProvider extends ContentProvider {
 		uriBuilder.scheme(scheme);
 		return uriBuilder.build();
 	}
+
+	private  void makeRing(){
+        for(String port:remotePort)
+          allNodesInRing.put(getNodeHash(port),port);
+    }
 
 }
