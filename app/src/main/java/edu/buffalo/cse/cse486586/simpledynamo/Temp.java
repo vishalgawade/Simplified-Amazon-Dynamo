@@ -1,3 +1,4 @@
+/*
 package edu.buffalo.cse.cse486586.simpledynamo;
 
 import java.io.DataInputStream;
@@ -14,18 +15,11 @@ import java.net.Socket;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Formatter;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.PriorityQueue;
-import java.util.Queue;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -49,17 +43,17 @@ public class SimpleDynamoProvider extends ContentProvider {
     private Map<String,String> allNodesInRing=new TreeMap<String,String>();
     private static final String KEY_FIELD = "key";
     private static final String VALUE_FIELD = "value";
-    Map<String,String> returnMap=new HashMap<String, String>();
-
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-		/*String requestor=myNode.getPort();
+		*/
+/*String requestor=myNode.getPort();
 		if(selectionArgs!=null){
 			if(requestor.equals(selectionArgs[0]))
 				return 0;
 			requestor=selectionArgs[0];
-		}*/
+		}*//*
+
         //delete from local all
         if(selection.equals("@")){
             deleteAllLocalFiles();
@@ -68,14 +62,16 @@ public class SimpleDynamoProvider extends ContentProvider {
         //delete from  all avds
         else if(selection.equals("*")){
             //only one node in ring
-			/*if(myNode.getId().compareTo(myNode.getPredecessorHash())==0){
+			*/
+/*if(myNode.getId().compareTo(myNode.getPredecessorHash())==0){
 				deleteAllLocalFiles();
 				return 0;
 			}
 			else{
 				deleteAllLocalFiles();
 				forwardDeleteRequest("*",myNode.getSuccessor(),requestor);
-			}*/
+			}*//*
+
             for(String port:allNodesInRing.values()){
                 if(port.equals(myNode.getPort()))
                     deleteAllLocalFiles();
@@ -129,31 +125,83 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.v("details", myNode.toString());
         if(values!=null) {
             FileOutputStream outputStream=null;
+            InputStream is=null;
+            DataOutputStream ds=null;
+            DataInputStream di=null;
+            Socket socket=null;
+            OutputStream os=null;
+            String msg="";
             try {
                 //check whether current node is right node for insert else forward request to its successor
                 String key= (String) values.get(KEY_FIELD);
                 String value= (String) values.get(VALUE_FIELD);
-                returnMap.put(key,value);
-                String rightPort=getKeyBelogingPort(key);
-                String [] successors=getTwoSuccessors(rightPort);
-                //add version to value
-                String version=getLatestVersion(key,rightPort,successors[0],successors[1]);
-                value=value+"_"+version;
                 //check whether we should insert here
+                String rightPort=getKeyBelogingPort(key);
+                Integer version1=0;
+                Integer version2=0;
+                Integer version3=0;
+                Integer version=0;
                 if(rightPort.equals(myNode.getPort())){
+                    String [] successors=getTwoSuccessors(myNode.getPort());
+                    MatrixCursor cursor=getKey(key);
+                    MatrixCursor successor1=searchOtherAvdForKey(key,successors[0]);
+                    MatrixCursor successor2=searchOtherAvdForKey(key,successors[1]);
+                    if(cursor!=null){
+                        String val=getKeyValuePairsFromCursor(cursor).split(",")[1];
+                        version1=Integer.parseInt(val.split("_")[1]);
+                    }
+                    if(successor1!=null){
+                        String val=getKeyValuePairsFromCursor(successor1).split(",")[1];
+                        version2=Integer.parseInt(val.split("_")[1]);
+                    }
+                    if(successor2!=null){
+                        String val=getKeyValuePairsFromCursor(successor2).split(",")[1];
+                        version3=Integer.parseInt(val.split("_")[1]);
+                    }
+                    if(version1>=version2&&version1>=version3)
+                        version=version1++;
+                    else if(version2>=version1&&version2>=version3)
+                        version=version2++;
+                    else
+                        version=version3++;
+
                     outputStream = getContext().getApplicationContext().openFileOutput(key, Context.MODE_PRIVATE);
-                    outputStream.write(value.getBytes());
-                    forwardInsertRequest(key,value,successors[0]);
-                    forwardInsertRequest(key,value,successors[1]);
-                    Log.e("inserted key at", values.toString());
+                    String insertval=value+"_"+version;
+                    outputStream.write(insertval.getBytes());
+                    forwardInsertRequest(key,insertval,successors[0]);
+                    forwardInsertRequest(key,insertval,successors[1]);
+                    Log.v("inserted key at", values.toString());
                 }
                 //forward request to successor of current node
                 else{
-                    forwardInsertRequest(key,value,rightPort);
-                    forwardInsertRequest(key,value,successors[0]);
-                    forwardInsertRequest(key,value,successors[1]);
+                    String [] successors=getTwoSuccessors(rightPort);
+                    MatrixCursor cursor=searchOtherAvdForKey(key,rightPort);
+                    MatrixCursor successor1=searchOtherAvdForKey(key,successors[0]);
+                    MatrixCursor successor2=searchOtherAvdForKey(key,successors[1]);
+                    if(cursor!=null){
+                        String val=getKeyValuePairsFromCursor(cursor).split(",")[1];
+                        version1=Integer.parseInt(val.split("_")[1]);
+                    }
+                    if(successor1!=null){
+                        String val=getKeyValuePairsFromCursor(successor1).split(",")[1];
+                        version2=Integer.parseInt(val.split("_")[1]);
+                    }
+                    if(successor2!=null){
+                        String val=getKeyValuePairsFromCursor(successor2).split(",")[1];
+                        version3=Integer.parseInt(val.split("_")[1]);
+                    }
+                    if(version1>=version2&&version1>=version3)
+                        version=version1++;
+                    else if(version2>=version1&&version2>=version3)
+                        version=version2++;
+                    else
+                        version=version3++;
+
+                    String insertval=value+"_"+version;
+                    forwardInsertRequest(key,insertval,rightPort);
+                    forwardInsertRequest(key,insertval,successors[0]);
+                    forwardInsertRequest(key,insertval,successors[1]);
                 }
-                returnMap.remove(key);
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
                 Log.v("file not found", values.getAsString("key")+"\t"+values.toString());
@@ -162,87 +210,23 @@ public class SimpleDynamoProvider extends ContentProvider {
                 e.printStackTrace();
                 Log.v("insert failed", values.getAsString("key")+"\t"+values.toString());
             }
-
-            try {
-                if(outputStream!=null){
-                    outputStream.close();
-                }
-            } catch (IOException e) {
+            catch (Exception e){
                 e.printStackTrace();
-                Log.v("Connection failed", "issue while closing connection");
+                Log.v("insert failed","something went wrong");
+            }
+            finally {
+                try {
+                    if(outputStream!=null){
+                        outputStream.close();
+                    }
+                    if(os!=null) os.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.v("Connection failed", "issue while closing connection");
+                }
             }
         }
         return uri;
-    }
-
-    private String getLatestVersion(String key,String rightPort,String successor1,String sucessor2){
-
-        TreeSet<Integer> version= new TreeSet<Integer>(Collections.reverseOrder());
-        String rightPortData=serachOtherAvdForKey(key,rightPort);
-        String s1Data=serachOtherAvdForKey(key,successor1);
-        String s2Data=serachOtherAvdForKey(key,sucessor2);
-        if(!rightPortData.isEmpty()){
-            String [] pair=rightPortData.split(";");
-            if(pair.length==1){
-                String val=pair[0].split(",")[1];
-                String v=val.split("_")[1];
-                version.add(Integer.parseInt(v));
-            }
-        }
-        if(!s1Data.isEmpty()){
-            String [] pair=s1Data.split(";");
-            if(pair.length==1){
-                String val=pair[0].split(",")[1];
-                String v=val.split("_")[1];
-                version.add(Integer.parseInt(v));
-            }
-        }
-        if(!s2Data.isEmpty()){
-            String [] pair=s2Data.split(";");
-            if(pair.length==1){
-                String val=pair[0].split(",")[1];
-                String v=val.split("_")[1];
-                version.add(Integer.parseInt(v));
-            }
-        }
-        //incremet version number
-        Integer ret=version.size()==0?1:version.first()+1;
-        return ret+"";
-    }
-
-    private Map<Integer,MatrixCursor> getLatestVersionWithCursor(String key,String rightPort,String successor1,String sucessor2){
-
-        Map<Integer,MatrixCursor> version= new TreeMap<Integer,MatrixCursor>(Collections.reverseOrder());
-        String rightPortData=serachOtherAvdForKey(key,rightPort);
-        String s1Data=serachOtherAvdForKey(key,successor1);
-        String s2Data=serachOtherAvdForKey(key,sucessor2);
-        if(!rightPortData.isEmpty()){
-            String [] pair=rightPortData.split(";");
-            if(pair.length==1){
-                String val=pair[0].split(",")[1];
-                String v=val.split("_")[1];
-                version.put(Integer.parseInt(v),getCursorFromStringtoQuery(rightPortData));
-            }
-        }
-        if(!s1Data.isEmpty()){
-            String [] pair=s1Data.split(";");
-            if(pair.length==1){
-                String val=pair[0].split(",")[1];
-                String v=val.split("_")[1];
-                version.put(Integer.parseInt(v),getCursorFromStringtoQuery(s1Data));
-            }
-        }
-        if(!s2Data.isEmpty()){
-            String [] pair=s2Data.split(";");
-            if(pair.length==1){
-                String val=pair[0].split(",")[1];
-                String v=val.split("_")[1];
-                version.put(Integer.parseInt(v),getCursorFromStringtoQuery(s2Data));
-            }
-        }
-        //incremet version number
-//        Integer ret=version.size()==0?1:((TreeMap<Integer, MatrixCursor>) version).pollFirstEntry().+1;
-        return version;
     }
 
     private String [] getTwoSuccessors(String port){
@@ -265,11 +249,56 @@ public class SimpleDynamoProvider extends ContentProvider {
         new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "INSERT",rightNode,key,value);
     }
 
+   */
+/* private String getKeyPresentFromPort(String key,String rightPort) {
+        InputStream is=null;
+        DataOutputStream ds=null;
+        DataInputStream di=null;
+        Socket socket=null;
+        OutputStream os=null;
+        String msg="";
+        try {
+            socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                    Integer.parseInt(rightPort));
+            os = socket.getOutputStream();
+            ds = new DataOutputStream(os);
+            ds.writeUTF("ASK_KEY_PRESENT," + key);
+            try {
+                is = socket.getInputStream();
+                // bf = new BufferedReader(new InputStreamReader(is));
+                di = new DataInputStream(is);
+                //msg=bf.readLine();
+                msg = di.readUTF();
+
+            } catch (Exception e) {
+                Log.e(TAG, "query forward failed inside");
+            } finally {
+                is.close();
+                ds.close();
+            }
+        }
+        catch (Exception e){
+            e.printStackTrace();
+            Log.v("insert failed","something went wrong");
+        }
+        finally {
+            try {
+                if(os!=null) os.close();
+                if(!socket.isClosed()) socket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Log.v("Connection failed", "issue while closing connection");
+            }
+        }
+    }*//*
+
+
     private void forwardDeleteRequest(String key,String rightNode) {
         new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "DELETE",rightNode,key);
     }
 
-	/*private boolean isRightNode(String key)  {
+	*/
+/*private boolean isRightNode(String key)  {
 		String keyHash=getNodeHash(key);
 		//for only following conditions we allow insert to current node
 		//1.only one node in ring
@@ -294,7 +323,8 @@ public class SimpleDynamoProvider extends ContentProvider {
 			return true;
 		else
 			return false;
-	}*/
+	}*//*
+
 
     private boolean isRightNode(String keyHash,String nodeHash,String predecessorHash)  {
         //for only following conditions we allow insert to current node
@@ -347,19 +377,22 @@ public class SimpleDynamoProvider extends ContentProvider {
         myNode=new Node(myPort,myPort,myPort);
 
         try {
-            /*
+            */
+/*
              * Create a server socket as well as a thread (AsyncTask) that listens on the server
              * port.
              *
              * AsyncTask is a simplified thread construct that Android provides. Please make sure
              * you know how it works by reading
              * http://developer.android.com/reference/android/os/AsyncTask.html
-             */
+             *//*
+
             ServerSocket serverSocket = new ServerSocket(SERVER_PORT);
             new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
             //we assumed that port 5504(avd0) will be the leader always if it comes online
             // therefore no need to send msg to anyone
-            /*if(!myPort.equals(leaderPort)){
+            */
+/*if(!myPort.equals(leaderPort)){
                 //telling everyone hey, i am joining the network
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "JOIN", myPort);
             }
@@ -367,19 +400,22 @@ public class SimpleDynamoProvider extends ContentProvider {
             else{
                 //add leader node to ring
                 allNodesInRing.put(getNodeHash(leaderPort),leaderPort);
-            }*/
+            }*//*
+
 
             new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "JOIN", myPort);
 //            makeRing();
         } catch (IOException e) {
-            /*
+            */
+/*
              * Log is a good way to debug your code. LogCat prints out all the messages that
              * Log class writes.
              *
              * Please read http://developer.android.com/tools/debugging/debugging-projects.html
              * and http://developer.android.com/tools/debugging/debugging-log.html
              * for more information on debugging.
-             */
+             *//*
+
             Log.e(TAG, "Can't create a ServerSocket");
             return true;
         }
@@ -417,59 +453,61 @@ public class SimpleDynamoProvider extends ContentProvider {
         return cursor;
     }
 
-    private MatrixCursor getKeysDataForQuery(){
-        // TODO Auto-generated method stub
-        MatrixCursor cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
-        String text="";
-        String [] fileList=getContext().getApplicationContext().fileList();
-//			for(String s:fileList)
-//				Log.v("vishal files ", s);
-        for(String selection:fileList) {
-            try {
-                // BufferedReader br=new BufferedReader(new FileReader(selection));
-                FileInputStream fis = getContext().getApplicationContext().openFileInput(selection);
-                text="";
-                int value = 0;
-                while ((value = fis.read()) != -1) {
-                    text += (char) value;
-                }
-                if (text.equals("")) {
-                    Log.v("file", "file not found");
-                    //return null;
-                } else {
-                    cursor.addRow(new String[]{selection, text.split("_")[0]});
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                Log.v("file", "file not found");
-            }
-        }
-        Log.v("query", "successfully found rows "+cursor.getCount());
-        return cursor;
-    }
-
     private MatrixCursor getKey(String selection){
         {
             // TODO Auto-generated method stub
             MatrixCursor cursor=null;
             String text="";
             try{
-                if(isKeyPresent(selection)) {
-                    // BufferedReader br=new BufferedReader(new FileReader(selection));
-                    FileInputStream fis = getContext().getApplicationContext().openFileInput(selection);
+                // BufferedReader br=new BufferedReader(new FileReader(selection));
+                if(!isKeyPresent(selection))
+                    return null;
+                FileInputStream fis=getContext().getApplicationContext().openFileInput(selection);
 
-                    int value = 0;
-                    while ((value = fis.read()) != -1) {
-                        text += (char) value;
-                    }
-                    if (text.equals("")) {
-                        Log.v("file", "file not found");
-                        return null;
-                    } else {
-                        cursor = new MatrixCursor(new String[]{KEY_FIELD, VALUE_FIELD});
-                        cursor.addRow(new String[]{selection, text});
-                        return cursor;
-                    }
+                int value=0;
+                while((value=fis.read())!=-1){
+                    text+=(char)value;
+                }
+                if(text.equals("")){
+                    Log.v("file", "file not found");
+                    return null;
+                }
+                else{
+                    cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
+                    cursor.addRow(new String[]{selection,text});
+                    return cursor;
+                }
+            }
+            catch (Exception e){
+                e.printStackTrace();
+                Log.v("file", "file not found");
+            }
+            Log.v("query", selection);
+            return null;
+        }
+    }
+
+    private MatrixCursor getKeyForQuery(String selection){
+        {
+            // TODO Auto-generated method stub
+            MatrixCursor cursor=null;
+            String text="";
+            try{
+                // BufferedReader br=new BufferedReader(new FileReader(selection));
+                FileInputStream fis=getContext().getApplicationContext().openFileInput(selection);
+
+                int value=0;
+                while((value=fis.read())!=-1){
+                    text+=(char)value;
+                }
+                if(text.equals("")){
+                    Log.v("file", "file not found");
+                    return null;
+                }
+                else{
+                    cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
+                    cursor.addRow(new String[]{selection,text.split("_")[0]});
+                    return cursor;
                 }
             }
             catch (Exception e){
@@ -484,20 +522,23 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection,
                         String[] selectionArgs, String sortOrder) {
-		/*String requestor=myNode.getPort();
+		*/
+/*String requestor=myNode.getPort();
 		if(selectionArgs!=null){
 			if(requestor.equals(selectionArgs[0]))
 				return null;
 			requestor=selectionArgs[0];
-		}*/
+		}*//*
+
         //search local all
         if(selection.equals("@")){
-            return getKeysDataForQuery();
+            return getCursorFromKeysString(getKeyValuePairsFromCursor(getKeysData()));
         }
         //search all avds
         else if(selection.equals("*")){
             //only one node in ring
-			/*if(myNode.getId().compareTo(myNode.getPredecessorHash())==0)
+			*/
+/*if(myNode.getId().compareTo(myNode.getPredecessorHash())==0)
 				return getKeysData();
 			else{
 				MatrixCursor otherAvdCursor=serachOtherAvdForAllKeys(selection,myNode.getSuccessor());
@@ -511,17 +552,18 @@ public class SimpleDynamoProvider extends ContentProvider {
 					}
 				}
 				return otherAvdCursor;
-			}*/
-            MatrixCursor myLocalCursor=getKeysDataForQuery();
+			}*//*
+
+            MatrixCursor myLocalCursor=getCursorFromKeysString(getKeyValuePairsFromCursor(getKeysData()));
             for(String port:allNodesInRing.values()){
                 if(!port.equals(myNode.getPort())){
-                    MatrixCursor tempCursor=serachOtherAvdForAllKeysForQuery("@",port);
+                    MatrixCursor tempCursor=serachOtherAvdForAllKeys("@",port);
                     String curPairs=getKeyValuePairsFromCursor(tempCursor);
                     String[] pairs=curPairs.isEmpty()?null:curPairs.split(";");
                     if(pairs!=null){
                         for(int i=0;i<pairs.length;i++){
                             String[] pair=pairs[i].split(",");
-                            myLocalCursor.addRow(new String[]{pair[0],pair[1]});
+                            myLocalCursor.addRow(new String[]{pair[0],pair[1].split("_")[0]});
                         }
                     }
                 }
@@ -530,11 +572,9 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
         else{
             //search local
-            if(returnMap.containsKey(selection))
-                return getCursorFromStringtoQuery(selection+","+returnMap.get(selection));
             String port=getKeyBelogingPort(selection);
             String [] sucessors=getTwoSuccessors(port);
-            /*MatrixCursor myCursor=null;
+            MatrixCursor myCursor=null;
             MatrixCursor successor1Cursor=null;
             MatrixCursor successor2Cursor=null;
             if(port.equals(myNode.getPort())){
@@ -550,16 +590,42 @@ public class SimpleDynamoProvider extends ContentProvider {
                 successor1Cursor=searchOtherAvdForKey(selection,sucessors[0]);
                 successor2Cursor=searchOtherAvdForKey(selection,sucessors[1]);
             }
-            return myCursor!=null?myCursor:successor1Cursor!=null?successor1Cursor:successor2Cursor;*/
-            Map<Integer,MatrixCursor> versions=getLatestVersionWithCursor(selection,port,sucessors[0],sucessors[1]);
-            Log.e(TAG, "-----started printing versions-----");
-            for(Map.Entry<Integer,MatrixCursor> m:versions.entrySet()){
-                Log.e(TAG, "key: "+m.getKey()+" value: "+m.getValue());
+            Integer version1=0;
+            Integer version2=0;
+            Integer version3=0;
+            if(myCursor!=null){
+                String val=getKeyValuePairsFromCursor(myCursor).split(",")[1];
+                version1=Integer.parseInt(val.split("_")[1]);
             }
-            Log.e(TAG, "-----finished printing versions-----");
-            Log.e(TAG, "returned : "+versions.entrySet().iterator().next().getValue());
-            return versions.size()==0?null:versions.entrySet().iterator().next().getValue();
+            if(successor1Cursor!=null){
+                String val=getKeyValuePairsFromCursor(successor1Cursor).split(",")[1];
+                version2=Integer.parseInt(val.split("_")[1]);
+            }
+            if(successor2Cursor!=null){
+                String val=getKeyValuePairsFromCursor(successor2Cursor).split(",")[1];
+                version3=Integer.parseInt(val.split("_")[1]);
+            }
+            if(version1>=version2&&version1>=version3){
+                return getCursorFromKeysString(getKeyValuePairsFromCursor(myCursor));
+            }
+            else if(version2>=version1&&version2>=version3){
+                return getCursorFromKeysString(getKeyValuePairsFromCursor(successor1Cursor));
+            }
+            else{
+                return getCursorFromKeysString(getKeyValuePairsFromCursor(successor2Cursor));
+            }
+//            return myCursor!=null?myCursor:successor1Cursor!=null?successor1Cursor:successor2Cursor;
         }
+    }
+
+    private MatrixCursor getCursorFromKeysString(String str){
+        String [] pairs=str.split(";");
+        MatrixCursor cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
+        for(String s:pairs){
+            String [] split=s.split(",");
+            cursor.addRow(new String[]{split[0],split[1].split("_")[0]});
+        }
+        return cursor;
     }
     private  boolean isKeyPresent(String selection){
         String [] fileList=getContext().getApplicationContext().fileList();
@@ -595,9 +661,11 @@ public class SimpleDynamoProvider extends ContentProvider {
                 di = new DataInputStream(is);
                 //msg=bf.readLine();
                 msg = di.readUTF();
-                String [] split=msg.split(",");
-                cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
-                cursor.addRow(new String[]{split[0],split[1]});
+                if(!msg.isEmpty()){
+                    String [] split=msg.split(",");
+                    cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
+                    cursor.addRow(new String[]{split[0],split[1]});
+                }
             } catch (Exception e) {
                 Log.e(TAG, "query forward failed inside");
             }
@@ -618,8 +686,56 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.e(TAG,"Error Closing socket");
             }
         }
-        if(cursor==null)
-          Log.e(TAG, "key not found something wrong");
+        Log.e(TAG, "key not found something wrong");
+        return cursor;
+    }
+
+    private MatrixCursor searchOtherAvdForKeyForQuery(String selection, String port){
+        InputStream is=null;
+        DataOutputStream ds=null;
+        DataInputStream di=null;
+        Socket socket=null;
+        String msg="";
+        MatrixCursor cursor=null;
+        try{
+            socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                    Integer.parseInt(port));
+            OutputStream os = socket.getOutputStream();
+            ds = new DataOutputStream(os);
+            //tell leader to add this node to his ring
+            ds.writeUTF("GETKEYSFORWARD,"+selection);
+            try {
+                is = socket.getInputStream();
+                // bf = new BufferedReader(new InputStreamReader(is));
+                di = new DataInputStream(is);
+                //msg=bf.readLine();
+                msg = di.readUTF();
+                if(!msg.isEmpty()) {
+                    String[] split = msg.split(",");
+                    cursor = new MatrixCursor(new String[]{KEY_FIELD, VALUE_FIELD});
+                    cursor.addRow(new String[]{split[0], split[1].split("_")[0]});
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "query forward failed inside");
+            }
+            finally {
+                is.close();
+                ds.close();
+            }
+        }
+        catch(Exception e){
+            e.printStackTrace();
+            Log.e(TAG, "query forward failed outside");
+        }
+        finally {
+            try {
+                if(!socket.isClosed())socket.close();
+            }
+            catch (Exception e){
+                Log.e(TAG,"Error Closing socket");
+            }
+        }
+        Log.e(TAG, "key not found something wrong");
         return cursor;
     }
 
@@ -643,7 +759,9 @@ public class SimpleDynamoProvider extends ContentProvider {
                 di = new DataInputStream(is);
                 //msg=bf.readLine();
                 msg = di.readUTF();
-                cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
+                if(!msg.isEmpty()) {
+                    cursor = new MatrixCursor(new String[]{KEY_FIELD, VALUE_FIELD});
+                }
             } catch (Exception e) {
                 Log.e(TAG, "query forward failed inside");
             }
@@ -671,121 +789,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                 cursor.addRow(new String[]{split[0],split[1]});
             }
         }
-        if(cursor==null)
-          Log.e(TAG, "key not found something wrong");
+        Log.e(TAG, "key not found something wrong");
         return cursor;
-    }
-
-    private MatrixCursor serachOtherAvdForAllKeysForQuery(String selection,String port){
-        InputStream is=null;
-        DataOutputStream ds=null;
-        DataInputStream di=null;
-        Socket socket=null;
-        String msg="";
-        MatrixCursor cursor=null;
-        try{
-            socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                    Integer.parseInt(port));
-            OutputStream os = socket.getOutputStream();
-            ds = new DataOutputStream(os);
-            //tell leader to add this node to his ring
-            ds.writeUTF("GETKEYSFORWARD,"+selection);
-            try {
-                is = socket.getInputStream();
-                // bf = new BufferedReader(new InputStreamReader(is));
-                di = new DataInputStream(is);
-                //msg=bf.readLine();
-                msg = di.readUTF();
-                cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
-            } catch (Exception e) {
-                Log.e(TAG, "query forward failed inside");
-            }
-            finally {
-                is.close();
-                ds.close();
-            }
-        }
-        catch(Exception e){
-            e.printStackTrace();
-            Log.e(TAG, "query forward failed outside");
-        }
-        finally {
-            try {
-                if(!socket.isClosed())socket.close();
-            }
-            catch (Exception e){
-                Log.e(TAG,"Error Closing socket");
-            }
-        }
-        if(!msg.isEmpty()){
-            String [] pairs=msg.split(";");
-            for(int i=0;i<pairs.length;i++){
-                String split[]=pairs[i].split(",");
-                cursor.addRow(new String[]{split[0],split[1].split("_")[0]});
-            }
-        }
-        if(cursor==null)
-            Log.e(TAG, "key not found something wrong");
-        return cursor;
-    }
-
-    private MatrixCursor getCursorFromStringtoQuery(String msg){
-        MatrixCursor cursor=null;
-        if(!msg.isEmpty()){
-            cursor=new MatrixCursor(new String[]{KEY_FIELD,VALUE_FIELD});
-            String [] pairs=msg.split(";");
-            for(int i=0;i<pairs.length;i++){
-                String split[]=pairs[i].split(",");
-                cursor.addRow(new String[]{split[0],split[1].split("_")[0]});
-            }
-        }
-        if(cursor==null)
-            Log.e(TAG, "key not found something wrong");
-        return cursor;
-    }
-
-    private String serachOtherAvdForKey(String selection,String port){
-        InputStream is=null;
-        DataOutputStream ds=null;
-        DataInputStream di=null;
-        Socket socket=null;
-        String msg="";
-        try{
-            socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                    Integer.parseInt(port));
-            OutputStream os = socket.getOutputStream();
-            ds = new DataOutputStream(os);
-            //tell leader to add this node to his ring
-            ds.writeUTF("GETKEYSFORWARD,"+selection);
-            try {
-                is = socket.getInputStream();
-                // bf = new BufferedReader(new InputStreamReader(is));
-                di = new DataInputStream(is);
-                //msg=bf.readLine();
-                msg = di.readUTF();
-            } catch (Exception e) {
-                Log.e(TAG, "query forward failed inside");
-            }
-            finally {
-                is.close();
-                ds.close();
-            }
-        }
-        catch(Exception e){
-            e.printStackTrace();
-            Log.e(TAG, "query forward failed outside");
-        }
-        finally {
-            try {
-                if(!socket.isClosed())socket.close();
-            }
-            catch (Exception e){
-                Log.e(TAG,"Error Closing socket");
-            }
-        }
-        if(msg.isEmpty())
-            Log.e(TAG, "key not found at thi port "+port);
-        return msg;
     }
 
     @Override
@@ -899,10 +904,12 @@ public class SimpleDynamoProvider extends ContentProvider {
                         //insert checks for right node else forward request to successor
                         //careful about circular infinite loop
                         //insert(mUri, cv);
-						/*FileOutputStream outputStream=null;
+						*/
+/*FileOutputStream outputStream=null;
                         outputStream = getContext().getApplicationContext().openFileOutput(msgSplit[1], Context.MODE_PRIVATE);
                         outputStream.write(msgSplit[2].getBytes());
-                        outputStream.close();*/
+                        outputStream.close();*//*
+
                         FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(msgSplit[1], Context.MODE_PRIVATE);
                         outputStream.write(msgSplit[2].getBytes());
                         outputStream.close();
@@ -923,44 +930,52 @@ public class SimpleDynamoProvider extends ContentProvider {
                         }
                         else
                             ds.writeUTF("");
-                       /* Cursor cursor = query(mUri, null, msgSplit[1], null, null);
+                       */
+/* Cursor cursor = query(mUri, null, msgSplit[1], null, null);
                         if(cursor!=null){
                             String ret = getKeyValuePairsFromCursor((MatrixCursor)cursor);
                             Log.e(TAG,"found key here "+ret);
                             ds.writeUTF(ret);
                         }
                         else
-                            ds.writeUTF("");*/
+                            ds.writeUTF("");*//*
+
                     }
                     else if(msgSplit[0].equals("DELETEFORWARD")){
                         delete(mUri, msgSplit[1], new String[]{"true"});
-					    /*if(msgSplit[1].equals("*"))
+					    */
+/*if(msgSplit[1].equals("*"))
 						    deleteAllLocalFiles();
 					    else{
                             getContext().getApplicationContext().deleteFile(msgSplit[2]);
                             Log.v("deleted forward key at", myNode.getPort());
-                        }*/
+                        }*//*
+
                     }
                     else if(msgSplit[0].equals("LIVEAGAIN")){
-						/*MatrixCursor cursor=findFailedNodeData(msgSplit[1],msgSplit[2]);
+						*/
+/*MatrixCursor cursor=findFailedNodeData(msgSplit[1],msgSplit[2]);
 						if(cursor.getCount()!=0){
 							String ret = getKeyValuePairsFromCursor((MatrixCursor)cursor);
 							Log.e(TAG,"failedPort keys found  here "+ret);
 							ds.writeUTF(ret);
 						}
 						else
-							ds.writeUTF("");*/
+							ds.writeUTF("");*//*
+
                         MatrixCursor cursor=getKeysData();
                         String ret = getKeyValuePairsFromCursor(cursor);
                         Log.e(TAG,"failedPort keys found  here "+ret);
                         ds.writeUTF(ret);
                         //delete(mUri, msgSplit[1], null);
-					    /*if(msgSplit[1].equals("*"))
+					    */
+/*if(msgSplit[1].equals("*"))
 						    deleteAllLocalFiles();
 					    else{
                             getContext().getApplicationContext().deleteFile(msgSplit[2]);
                             Log.v("deleted forward key at", myNode.getPort());
-                        }*/
+                        }*//*
+
                     }
                 }
                 catch (IOException e) {
@@ -1005,7 +1020,8 @@ public class SimpleDynamoProvider extends ContentProvider {
             return cursor;
         }
 
-		/*private void findSuccessor(String incomingPort) {
+		*/
+/*private void findSuccessor(String incomingPort) {
 			allNodesInRing.put(getNodeHash(incomingPort),incomingPort);
 			String arr[]= new String[allNodesInRing.size()];
 			int index=0;
@@ -1019,19 +1035,24 @@ public class SimpleDynamoProvider extends ContentProvider {
 			if(arr.length>1){
 				new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "UPDATE",arr[0],arr[length-1],arr[1]);
 			}
-		}*/
+		}*//*
+
 
         protected void onProgressUpdate(String...strings) {
-            /*
+            */
+/*
              * The following code displays what is received in doInBackground().
-             */
+             *//*
 
-            /*
+
+            */
+/*
              * The following code creates a file in the AVD's internal storage and stores a file.
              *
              * For more information on file I/O on Android, please take a look at
              * http://developer.android.com/training/basics/data-storage/files.html
-             */
+             *//*
+
 
             return;
         }
@@ -1083,23 +1104,25 @@ public class SimpleDynamoProvider extends ContentProvider {
                         String predessorpredpred=getPredecessor(arr,predessorpred);
 //						String predessor = remotePort[4];
 
-						/*for (String port : allNodesInRing.values()) {
-                            if (port.equals(myNode.getPort()))
-                                break;
-                            predessor = port;
-                        }
-                        String predessorpred = remotePort[4];
-                        for (String port : allNodesInRing.values()) {
-                            if (port.equals(predessor))
-                                break;
-                            predessorpred = port;
-                        }
-                        String predessorpredpred = remotePort[4];
-                        for (String port : allNodesInRing.values()) {
-                            if (port.equals(predessorpred))
-                                break;
-                            predessorpredpred = port;
-						}*/
+						*/
+/*for (String port : allNodesInRing.values()) {
+							if (port.equals(myNode.getPort()))
+								break;
+							predessor = port;
+						}
+						String predessorpred = remotePort[4];
+						for (String port : allNodesInRing.values()) {
+							if (port.equals(predessor))
+								break;
+							predessorpred = port;
+						}
+						String predessorpredpred = remotePort[4];
+						for (String port : allNodesInRing.values()) {
+							if (port.equals(predessorpred))
+								break;
+							predessorpredpred = port;
+						}*//*
+
                         String pairs1[]=null;
                         String pairs2[]=null;
                         String pairsp1[]=null;
@@ -1119,13 +1142,15 @@ public class SimpleDynamoProvider extends ContentProvider {
                             String msg = di.readUTF();
                             if (!msg.trim().isEmpty()) {
                                 pairs1 = msg.split(";");
-								/*for (int i = 0; i < pairs.length; i++) {
+								*/
+/*for (int i = 0; i < pairs.length; i++) {
 									splits1 = pairs[i].split(",");
 									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
 									outputStream.write(split[1].getBytes());
 									outputStream.close();
 								}
-								Log.e(TAG, "succefully inserted all recovered data from " + successors);*/
+								Log.e(TAG, "succefully inserted all recovered data from " + successors);*//*
+
                             }
                         } catch (Exception e) {
                             Log.e(TAG, "failed to  inserted all recovered data");
@@ -1148,13 +1173,15 @@ public class SimpleDynamoProvider extends ContentProvider {
                             String msg = di.readUTF();
                             if (!msg.trim().isEmpty()) {
                                 pairs2 = msg.split(";");
-								/*for (int i = 0; i < pairs.length; i++) {
+								*/
+/*for (int i = 0; i < pairs.length; i++) {
 									splits1 = pairs[i].split(",");
 									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
 									outputStream.write(split[1].getBytes());
 									outputStream.close();
 								}
-								Log.e(TAG, "succefully inserted all recovered data from " + successors);*/
+								Log.e(TAG, "succefully inserted all recovered data from " + successors);*//*
+
                             }
                         } catch (Exception e) {
                             Log.e(TAG, "failed to  inserted all recovered data");
@@ -1177,13 +1204,15 @@ public class SimpleDynamoProvider extends ContentProvider {
                             String msg = di.readUTF();
                             if (!msg.trim().isEmpty()) {
                                 pairsp1 = msg.split(";");
-								/*for (int i = 0; i < pairs.length; i++) {
+								*/
+/*for (int i = 0; i < pairs.length; i++) {
 									String split[] = pairs[i].split(",");
 									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
 									outputStream.write(split[1].getBytes());
 									outputStream.close();
 								}
-								Log.e(TAG, "succefully inserted all rata fropm " + predessor);*/
+								Log.e(TAG, "succefully inserted all rata fropm " + predessor);*//*
+
                             }
                         } catch (Exception e) {
                             Log.e(TAG, "failed to  inserted all recovered data");
@@ -1206,13 +1235,15 @@ public class SimpleDynamoProvider extends ContentProvider {
                             String msg = di.readUTF();
                             if (!msg.trim().isEmpty()) {
                                 pairsp2 = msg.split(";");
-								/*for (int i = 0; i < pairs.length; i++) {
+								*/
+/*for (int i = 0; i < pairs.length; i++) {
 									String split[] = pairs[i].split(",");
 									FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
 									outputStream.write(split[1].getBytes());
 									outputStream.close();
 								}
-								Log.e(TAG, "succefully inserted all recovered data fropm " + predessorpred);*/
+								Log.e(TAG, "succefully inserted all recovered data fropm " + predessorpred);*//*
+
                             }
                         } catch (Exception e) {
                             Log.e(TAG, "failed to  inserted all recovered data");
@@ -1238,25 +1269,57 @@ public class SimpleDynamoProvider extends ContentProvider {
                         String predessorHash=getNodeHash(predessor);
                         String predessorHash1=getNodeHash(predessorpred);
                         String predessorHash2=getNodeHash(predessorpredpred);
-                        Map<String,String> insertMap=new HashMap<String,String>();
-
                         int inc=0;
-                        insertMap=getLatestKeysForInsert(insertMap,pairs1,nodeHash,predessorHash);
-                        insertMap=getLatestKeysForInsert(insertMap,pairs2,nodeHash,predessorHash);
-                        insertMap=getLatestKeysForInsert(insertMap,pairsp1,predessorHash,predessorHash1);
-                        insertMap=getLatestKeysForInsert(insertMap,pairsp2,predessorHash1,predessorHash2);
-
-                        for (Map.Entry<String,String> m:insertMap.entrySet()) {
-                            String key = m.getKey();
-                            String value=m.getValue();
-                            FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(key, Context.MODE_PRIVATE);
-                            outputStream.write(value.getBytes());
-                            outputStream.close();
-                            inc++;
+                        for (int i = 0; i < pairs1.length; i++) {
+                            String split[] = pairs1[i].split(",");
+                            String keyHash=getNodeHash(split[0]);
+                            if(isRightNode(keyHash,nodeHash,predessorHash)){
+                                FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+                                outputStream.write(split[1].getBytes());
+                                outputStream.close();
+                                inc++;
+                            }
                         }
-                        Log.e(TAG, "size of failed pairs inserted "+inc);
+                        Log.e(TAG, "size of pairs1 inserted "+inc);
+                        inc=0;
+                        for (int i = 0; i < pairs2.length; i++) {
+                            String split[] = pairs2[i].split(",");
+                            String keyHash=getNodeHash(split[0]);
+                            if(isRightNode(keyHash,nodeHash,predessorHash)) {
+                                FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+                                outputStream.write(split[1].getBytes());
+                                outputStream.close();
+                                inc++;
+                            }
+                        }
+                        Log.e(TAG, "size of pairs2 inserted "+inc);
+                        inc=0;
+                        for (int i = 0; i < pairsp1.length; i++) {
+                            String split[] = pairsp1[i].split(",");
+                            String keyHash=getNodeHash(split[0]);
+                            if(isRightNode(keyHash,predessorHash,predessorHash1)) {
+                                FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+                                outputStream.write(split[1].getBytes());
+                                outputStream.close();
+                                inc++;
+                            }
+                        }
+                        Log.e(TAG, "size of pairsp1 inserted "+inc);
+                        inc=0;
+                        for (int i = 0; i < pairsp2.length; i++) {
+                            String split[] = pairsp2[i].split(",");
+                            String keyHash=getNodeHash(split[0]);
+                            if(isRightNode(keyHash,predessorHash1,predessorHash2)) {
+                                FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(split[0], Context.MODE_PRIVATE);
+                                outputStream.write(split[1].getBytes());
+                                outputStream.close();
+                                inc++;
+                            }
+                        }
+                        Log.e(TAG, "size of pairsp2 inserted "+inc);
 //				    makeRing();
-					/*for(String port:remotePort){
+					*/
+/*for(String port:remotePort){
 					    if(!port.equals(myNode.getPort())){
                             socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
                                     Integer.parseInt(port));
@@ -1265,7 +1328,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                             //tell leader to add this node to his ring
                             ds.writeUTF("ADD,"+msgs[1]);
                         }
-                    }*/
+                    }*//*
+
 //                    is = socket.getInputStream();
 //                    // bf = new BufferedReader(new InputStreamReader(is));
 //                    di = new DataInputStream(is);
@@ -1318,32 +1382,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             return null;
         }
 
-        private Map<String,String> getLatestKeysForInsert(Map<String,String> insertMap,String [] pairs,String nodeHash,String predessorHash){
-            int inc=0;
-            for (int i = 0; i < pairs.length; i++) {
-                String split[] = pairs[i].split(",");
-                String key=split[0];
-                String value=split[1];
-                String version=split[1].split("_")[1];
-                String keyHash=getNodeHash(key);
-                if(isRightNode(keyHash,nodeHash,predessorHash)){
-                    if(insertMap.containsKey(key)){
-                        String tempValue=insertMap.get(key);
-                        String tempVersion=value.split("_")[1];
-                        if(Integer.parseInt(version)>Integer.parseInt(tempVersion)){
-                            insertMap.put(key,value);
-                        }
-                    }
-                    else{
-                        insertMap.put(key,value);
-                    }
-                    inc++;
-                }
-            }
-            Log.e(TAG, "size of pairs1 inserted "+inc);
-            return insertMap;
-        }
-
         private String [] getTwoSuccessors(String port){
             String arr[]= new String[allNodesInRing.size()];
             int index=0;
@@ -1385,3 +1423,4 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
 }
+*/
