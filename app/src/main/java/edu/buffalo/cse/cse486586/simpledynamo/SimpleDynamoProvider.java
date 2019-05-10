@@ -136,13 +136,32 @@ public class SimpleDynamoProvider extends ContentProvider {
                 returnMap.put(key,value);
                 String rightPort=getKeyBelogingPort(key);
                 String [] successors=getTwoSuccessors(rightPort);
+                Log.e(TAG, "key "+key+" rightport "+rightPort+" s1"+successors[0]+" s2"+successors[1]);
                 //add version to value
-                String version=getLatestVersion(key,rightPort,successors[0],successors[1]);
-                value=value+"_"+version;
+//                String version=getLatestVersion(key,rightPort,successors[0],successors[1]);
+//                value=value+"_"+"1";
                 //check whether we should insert here
+                String version="1";
                 if(rightPort.equals(myNode.getPort())){
+                    if(isKeyPresent(key)) {
+                            // BufferedReader br=new BufferedReader(new FileReader(selection));
+                            FileInputStream fis = getContext().getApplicationContext().openFileInput(key);
+                            String text="";
+                            int v = 0;
+                            while ((v = fis.read()) != -1) {
+                                text += (char) v;
+                            }
+                            if (text.equals("")) {
+                                Log.v("file", "file not found");
+                                return null;
+                            } else {
+                                Integer vv=Integer.parseInt(text.split("_")[1])+1;
+                                version=vv+"";
+                            }
+                        }
                     outputStream = getContext().getApplicationContext().openFileOutput(key, Context.MODE_PRIVATE);
-                    outputStream.write(value.getBytes());
+                    String valInsert=value+"_"+version;
+                    outputStream.write(valInsert.getBytes());
                     forwardInsertRequest(key,value,successors[0]);
                     forwardInsertRequest(key,value,successors[1]);
                     Log.e("inserted key at", values.toString());
@@ -153,7 +172,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                     forwardInsertRequest(key,value,successors[0]);
                     forwardInsertRequest(key,value,successors[1]);
                 }
-                returnMap.remove(key);
+                //returnMap.remove(key);
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
                 Log.v("file not found", values.getAsString("key")+"\t"+values.toString());
@@ -216,6 +235,9 @@ public class SimpleDynamoProvider extends ContentProvider {
         String rightPortData=serachOtherAvdForKey(key,rightPort);
         String s1Data=serachOtherAvdForKey(key,successor1);
         String s2Data=serachOtherAvdForKey(key,sucessor2);
+        Log.e(TAG,"rightPort Data "+rightPortData);
+        Log.e(TAG,"s1 Data "+s1Data);
+        Log.e(TAG,"s2 Data "+s2Data);
         if(!rightPortData.isEmpty()){
             String [] pair=rightPortData.split(";");
             if(pair.length==1){
@@ -530,8 +552,12 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
         else{
             //search local
-            if(returnMap.containsKey(selection))
-                return getCursorFromStringtoQuery(selection+","+returnMap.get(selection));
+            if(returnMap.containsKey(selection)){
+                Log.e(TAG,"returned from returnMap"+selection+" value"+returnMap.get(selection));
+                String value = returnMap.get(selection);
+                returnMap.remove(selection);
+                return getCursorFromStringtoQuery(selection+","+value);
+            }
             String port=getKeyBelogingPort(selection);
             String [] sucessors=getTwoSuccessors(port);
             /*MatrixCursor myCursor=null;
@@ -903,10 +929,30 @@ public class SimpleDynamoProvider extends ContentProvider {
                         outputStream = getContext().getApplicationContext().openFileOutput(msgSplit[1], Context.MODE_PRIVATE);
                         outputStream.write(msgSplit[2].getBytes());
                         outputStream.close();*/
+                        String key = msgSplit[1];
+                        String value=msgSplit[2];
+                        String version = "1";
+                        if (isKeyPresent(key)) {
+                            // BufferedReader br=new BufferedReader(new FileReader(selection));
+                            FileInputStream fis = getContext().getApplicationContext().openFileInput(key);
+                            String text = "";
+                            int v = 0;
+                            while ((v = fis.read()) != -1) {
+                                text += (char) v;
+                            }
+                            if (text.equals("")) {
+                                Log.v("file", "file not found");
+                                return null;
+                            } else {
+                                Integer vv = Integer.parseInt(text.split("_")[1]) + 1;
+                                version = vv + "";
+                            }
+                        }
+                        String valInsert=value+"_"+version;
                         FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(msgSplit[1], Context.MODE_PRIVATE);
-                        outputStream.write(msgSplit[2].getBytes());
+                        outputStream.write(valInsert.getBytes());
                         outputStream.close();
-                        Log.v("inserted forward key at", cv.toString());
+                        Log.e("inserted forward key at",myNode.getPort()+" key:"+key+" val:"+valInsert);
                     }
                     else if(msgSplit[0].equals("GETKEYSFORWARD")){
                         Cursor cursor;
@@ -1073,6 +1119,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 //						InputStream is = null;
 //						for (String port : remotePort)
 //							allNodesInRing.put(getNodeHash(port), port);
+                        deleteAllLocalFiles();
                         String[] successors = getTwoSuccessors(myNode.getPort());
                         String [] arr=new String [allNodesInRing.size()];
                         int index=0;
@@ -1245,14 +1292,18 @@ public class SimpleDynamoProvider extends ContentProvider {
                         insertMap=getLatestKeysForInsert(insertMap,pairs2,nodeHash,predessorHash);
                         insertMap=getLatestKeysForInsert(insertMap,pairsp1,predessorHash,predessorHash1);
                         insertMap=getLatestKeysForInsert(insertMap,pairsp2,predessorHash1,predessorHash2);
-
+                        //deleteAllLocalFiles();
                         for (Map.Entry<String,String> m:insertMap.entrySet()) {
+
                             String key = m.getKey();
                             String value=m.getValue();
-                            FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(key, Context.MODE_PRIVATE);
-                            outputStream.write(value.getBytes());
-                            outputStream.close();
-                            inc++;
+                            if(!isKeyPresent(key)){
+                                FileOutputStream outputStream = getContext().getApplicationContext().openFileOutput(key, Context.MODE_PRIVATE);
+                                outputStream.write(value.getBytes());
+                                outputStream.close();
+                                Log.e(TAG,"inserted on wakeupkey:"+key+" value:"+value);
+                                inc++;
+                            }
                         }
                         Log.e(TAG, "size of failed pairs inserted "+inc);
 //				    makeRing();
@@ -1329,9 +1380,10 @@ public class SimpleDynamoProvider extends ContentProvider {
                 if(isRightNode(keyHash,nodeHash,predessorHash)){
                     if(insertMap.containsKey(key)){
                         String tempValue=insertMap.get(key);
-                        String tempVersion=value.split("_")[1];
+                        String tempVersion=tempValue.split("_")[1];
                         if(Integer.parseInt(version)>Integer.parseInt(tempVersion)){
                             insertMap.put(key,value);
+                            Log.e(TAG,"version same on wake up old:"+tempValue+" new:"+value);
                         }
                     }
                     else{
