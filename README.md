@@ -2,7 +2,7 @@
 
 ---------------
 
-![Img_4](https://raw.githubusercontent.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/master/Resources/1.png)
+![Img_4](https://github.com/vishalgawade/Simplified-Amazon-Dynamo/blob/master/readmepic.png)
 
 Goal
 ------
@@ -15,28 +15,6 @@ I have taken reference from below sources to design the Dynamo: -</br>
 1. [Lecture slides](http://www.cse.buffalo.edu/~stevko/courses/cse486/spring19/lectures/26-dynamo.pdf)</br>
 2. [Dynamo paper](http://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf)</br>
 3. [Cloud Computing Concepts - University of Illinois at Urbana-Champaign](https://www.coursera.org/learn/cloud-computing)
-
-
-Writing the Content Provider
-----------------------------------------
-This project implements a [**Content Provider**](https://developer.android.com/guide/topics/providers/content-providers.html) that provide all storage functionalities. For example, it creates server and client threads, open sockets, and respond to incoming requests. There are few assumptions/restrictions for the [**Grader**](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/tree/master/Testing_Program) that test this application: -
->  1. Any app (not just our app) should be able to access (read and write) our content provider.
->  2. There can be at most **1 node failure** at any given time and is emulated by force closing an app instance.
->  3.  **All failures are temporary** and you can assume that a failed node will recover soon.
->  4.  **When a node recovers, it should copy all the object writes it missed during the failure**. This is done by asking the right nodes and copy from them.
->  5. The content provider should handle a **failure happening at the same time with read/write operations**.
->  6.  **Replication should be done exactly the same way as Dynamo does**. In other words, a < key, value > pair should be replicated over three consecutive partitions, starting from the partition that the key belongs to.
->  7. All replicas should store the same value for each key. This is “per-key” consistency. There is no consistency guarantee we need to provide across keys. More formally, we only implement **per-key linearizability**.
->  8. The content provider also should support **concurrent read/write operations**.
->  9. Each content provider instance should have a node id derived from its emulator port. This node id should be obtained by applying the SHA1 hash function to the emulator port. For example, **the node id of the content provider instance running on emulator-5554 should be, node_id = genHash(“5554”)**. This is necessary to find the correct position of each node in the Dynamo ring.
->  10. There are always **5 nodes** in the system.
->  11. Unlike Dynamo, there are two things that we do not need to implement: - </br>
->   a) **Virtual nodes** - This implementation uses physical nodes rather than virtual nodes, i.e., all partitions are static and fixed</br>
->   b) **Hinted handoff** - This project do not implement hinted handoff. This means that when there is a failure, it is **OK to replicate on only two alive nodes**
->  11. We have fixed the ports & sockets: -</br>
-	a) Our app opens one server socket that listens on **Port 10000**.</br>
-	b) We use [**run_avd.py**](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/blob/master/Scripts/run_avd.py) and [**set_redir.py**](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/blob/master/Scripts/set_redir.py) scripts to set up the testing environment. </br>
-	c) The grading will use 5 AVDs. The redirection ports are **11108, 11112, 11116, 11120, and 11124**.
 
 Amazon Dynamo design guidelines
 -------------------------------------------------
@@ -105,24 +83,6 @@ The  [**Grader**](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dy
 > a) This phase will crash one node at a time consistently, i.e., one node will crash then recover, and another node will crash and recover, etc.
 
 > b) There will be a brief period of time in between the crash-recover sequence.
-
-
-Running the Grader/Testing Program
------------------------------------------
-> 1. Load the Project in Android Studio and create the [**apk file**](https://developer.android.com/studio/run/index.html).
-> 2. Download  the [**Testing Program**](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/tree/master/Testing_Program) for your platform.
-> 3. Before you run the program, please make sure that you are **running five AVDs**. The below command will do it: -
-	- **python [run_avd.py](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/blob/master/Scripts/run_avd.py) 5**
-> 4. Also make sure that the **Emulator Networking** setup is done. The below command will do it: -
-	- **python [set_redir.py](https://github.com/ramanpreet1990/CSE_586_Simplified_Amazon_Dynamo/blob/master/Scripts/set_redir.py) 10000**
-> 5.  Run the grader: -
-	- $ chmod +x ***< grader executable>***
-	- $ ./*< grader executable>* ***apk file path***
-> 6. **‘-h’** argument will show you what options are available. Usage is shown below: -
-	-  $ *< grader executable>*  **-h**
-> 7. You can specify which testing phase you want to test by providing **‘-p’** or ‘--phase’ argument to the tester.
-> 8. **Note:** If you run an individual phase with "-p", it will always be a fresh install. However if you run all phases (without "-p"), it will not always be a fresh install; the grader will do a fresh-install before phase 1, and do another fresh-install before phase 2. Afterwards, there will be no install. **This means that all data from previous phases will remain intact**.
-> 9. The grader uses **multiple threads** to test your code and each thread will independently print out its own log messages. This means that an **error message might appear in the middle of the combined log messages from all threads, rather than at the end**.
 
 
 Credits
